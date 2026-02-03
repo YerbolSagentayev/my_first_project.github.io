@@ -37,12 +37,55 @@ exports.handler = async (event) => {
     return { statusCode: 200, body: "NO_LEAD" };
   }
 
-  try {
-    const price = await getLeadPrice(parsed.subdomain, parsed.lead_id);
-    console.log("LEAD PRICE:", price);
+try {
+  const lead = await getLeadWithContacts(parsed.subdomain, parsed.lead_id);
+  const price = lead.price;
+  const contactId = lead._embedded?.contacts?.[0]?.id;
+
+  console.log("LEAD PRICE:", price);
+  console.log("CONTACT ID:", contactId);
+
+  if (!contactId) {
+    console.log("NO CONTACT LINKED");
     return { statusCode: 200, body: "OK" };
-  } catch (e) {
-    console.log("ERROR:", e.message);
-    return { statusCode: 200, body: "ERROR" };
   }
-};
+
+  const contact = await getContact(parsed.subdomain, contactId);
+  const fields = contact.custom_fields_values || [];
+
+  const email = getFieldValue(fields, "EMAIL");
+  const phone = getFieldValue(fields, "PHONE");
+
+  console.log("EMAIL:", email);
+  console.log("PHONE:", phone);
+
+  return { statusCode: 200, body: "OK" };
+} catch (e) {
+  console.log("ERROR:", e.message);
+  return { statusCode: 200, body: "ERROR" };
+}
+
+
+async function getLeadWithContacts(subdomain, leadId) {
+  const url = `https://${subdomain}.amocrm.ru/api/v4/leads/${leadId}?with=contacts`;
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${process.env.AMO_ACCESS_TOKEN}` }
+  });
+  if (!res.ok) throw new Error("Lead fetch failed");
+  return res.json();
+}
+
+async function getContact(subdomain, contactId) {
+  const url = `https://${subdomain}.amocrm.ru/api/v4/contacts/${contactId}`;
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${process.env.AMO_ACCESS_TOKEN}` }
+  });
+  if (!res.ok) throw new Error("Contact fetch failed");
+  return res.json();
+}
+
+function getFieldValue(fields, code) {
+  if (!Array.isArray(fields)) return null;
+  const field = fields.find(f => f.field_code === code);
+  return field?.values?.[0]?.value ?? null;
+}
