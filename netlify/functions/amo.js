@@ -1,4 +1,5 @@
 const { URLSearchParams } = require("url");
+const crypto = require("crypto");
 
 function parseAmoForm(body) {
   const params = new URLSearchParams(body);
@@ -8,6 +9,14 @@ function parseAmoForm(body) {
     status_id: Number(params.get("leads[status][0][status_id]") || 0),
     subdomain: params.get("account[subdomain]") || null,
   };
+}
+
+function hash(value) {
+  if (!value) return null;
+  return crypto
+    .createHash("sha256")
+    .update(String(value).trim().toLowerCase())
+    .digest("hex");
 }
 
 async function amoGet(subdomain, path) {
@@ -72,6 +81,13 @@ exports.handler = async (event) => {
 
     console.log("EMAIL:", email);
     console.log("PHONE:", phone);
+
+    // 3) Хэшируем для Meta
+    const email_hash = hash(email);
+    const phone_hash = hash(phone);
+
+    console.log("EMAIL HASH:", email_hash);
+    console.log("PHONE HASH:", phone_hash);
 
     return { statusCode: 200, body: "OK" };
   } catch (e) {
