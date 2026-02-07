@@ -3,7 +3,6 @@ const crypto = require("crypto");
 
 function parseAmoForm(body) {
   const params = new URLSearchParams(body);
-
   return {
     lead_id: Number(params.get("leads[status][0][id]") || 0),
     status_id: Number(params.get("leads[status][0][status_id]") || 0),
@@ -21,7 +20,6 @@ function hash(value) {
 
 async function amoGet(subdomain, path) {
   const url = `https://${subdomain}.amocrm.ru${path}`;
-
   const res = await fetch(url, {
     headers: {
       Authorization: `Bearer ${process.env.AMO_ACCESS_TOKEN}`,
@@ -33,7 +31,6 @@ async function amoGet(subdomain, path) {
     const text = await res.text();
     throw new Error(`amoCRM error ${res.status}: ${text}`);
   }
-
   return res.json();
 }
 
@@ -52,47 +49,47 @@ exports.handler = async (event) => {
       return { statusCode: 200, body: "NO_LEAD" };
     }
 
-    // 1) Получаем сделку вместе с контактами
     const lead = await amoGet(
       parsed.subdomain,
       `/api/v4/leads/${parsed.lead_id}?with=contacts`
     );
 
-    const price = lead.price ?? null;
-    const contactId = lead._embedded?.contacts?.[0]?.id ?? null;
+    console.log("LEAD PRICE:", lead.price ?? null);
+    console.log("CONTACT ID:", lead._embedded?.contacts?.[0]?.id ?? null);
 
-    console.log("LEAD PRICE:", price);
-    console.log("CONTACT ID:", contactId);
-
-    // ✅ ВОТ ОНО: проверка UTM/источника из раздела "Статистика"
-    // Обычно UTM лежат здесь (если amoCRM их сохранила):
-    // lead._embedded.source
+    // 🔎 1) То, что мы уже пробовали
     console.log("LEAD SOURCE:", lead._embedded?.source);
 
-    if (!contactId) {
-      console.log("NO CONTACT LINKED");
-      return { statusCode: 200, body: "OK_NO_CONTACT" };
-    }
+    // 🔎 2) Часто есть source_id (а детали источника отдельно)
+    console.log("LEAD source_id:", lead.source_id);
 
-    // 2) Получаем контакт
-    const contact = await amoGet(
-      parsed.subdomain,
-      `/api/v4/contacts/${contactId}`
-    );
+    // 🔎 3) Посмотрим какие вообще ключи есть в _embedded
+    console.log("LEAD _embedded keys:", lead._embedded ? Object.keys(lead._embedded) : null);
 
-    const fields = contact.custom_fields_values || [];
-    const email = getFieldValue(fields, "EMAIL");
-    const phone = getFieldValue(fields, "PHONE");
+    // 🔎 4) Посмотрим какие поля у сделки вообще есть (вдруг UTM лежат в кастомных полях)
+    const leadFields = lead.custom_fields_values || [];
+    const leadFieldList = leadFields.map((f) => ({
+      field_id: f.field_id,
+      field_name: f.field_name,
+      field_code: f.field_code,
+      value: f.values?.[0]?.value ?? null,
+    }));
+
+    console.log("LEAD FIELDS (first 30):", leadFieldList.slice(0, 30));
+
+    // Контакт и хэши оставим как раньше (на будущее)
+    const contactId = lead._embedded?.contacts?.[0]?.id ?? null;
+    if (!contactId) return { statusCode: 200, body: "OK_NO_CONTACT" };
+
+    const contact = await amoGet(parsed.subdomain, `/api/v4/contacts/${contactId}`);
+    const cfields = contact.custom_fields_values || [];
+    const email = getFieldValue(cfields, "EMAIL");
+    const phone = getFieldValue(cfields, "PHONE");
 
     console.log("EMAIL:", email);
     console.log("PHONE:", phone);
-
-    // 3) Хэшируем (понадобится для Meta)
-    const email_hash = hash(email);
-    const phone_hash = hash(phone);
-
-    console.log("EMAIL HASH:", email_hash);
-    console.log("PHONE HASH:", phone_hash);
+    console.log("EMAIL HASH:", hash(email));
+    console.log("PHONE HASH:", hash(phone));
 
     return { statusCode: 200, body: "OK" };
   } catch (e) {
