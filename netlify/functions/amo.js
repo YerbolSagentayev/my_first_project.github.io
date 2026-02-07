@@ -64,6 +64,11 @@ exports.handler = async (event) => {
     console.log("LEAD PRICE:", price);
     console.log("CONTACT ID:", contactId);
 
+    // ✅ ВОТ ОНО: проверка UTM/источника из раздела "Статистика"
+    // Обычно UTM лежат здесь (если amoCRM их сохранила):
+    // lead._embedded.source
+    console.log("LEAD SOURCE:", lead._embedded?.source);
+
     if (!contactId) {
       console.log("NO CONTACT LINKED");
       return { statusCode: 200, body: "OK_NO_CONTACT" };
@@ -82,7 +87,7 @@ exports.handler = async (event) => {
     console.log("EMAIL:", email);
     console.log("PHONE:", phone);
 
-    // 3) Хэшируем для Meta
+    // 3) Хэшируем (понадобится для Meta)
     const email_hash = hash(email);
     const phone_hash = hash(phone);
 
