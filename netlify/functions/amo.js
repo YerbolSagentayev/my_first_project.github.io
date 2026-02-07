@@ -20,6 +20,7 @@ function hash(value) {
 
 async function amoGet(subdomain, path) {
   const url = `https://${subdomain}.amocrm.ru${path}`;
+
   const res = await fetch(url, {
     headers: {
       Authorization: `Bearer ${process.env.AMO_ACCESS_TOKEN}`,
@@ -31,13 +32,19 @@ async function amoGet(subdomain, path) {
     const text = await res.text();
     throw new Error(`amoCRM error ${res.status}: ${text}`);
   }
+
   return res.json();
 }
 
-function getFieldValue(customFields, code) {
+function getFieldValueByCode(customFields, code) {
   if (!Array.isArray(customFields)) return null;
   const f = customFields.find((x) => x.field_code === code);
   return f?.values?.[0]?.value ?? null;
+}
+
+function getLeadFieldValue(lead, code) {
+  const fields = lead.custom_fields_values || [];
+  return getFieldValueByCode(fields, code);
 }
 
 exports.handler = async (event) => {
@@ -49,42 +56,55 @@ exports.handler = async (event) => {
       return { statusCode: 200, body: "NO_LEAD" };
     }
 
+    // 1) Получаем сделку + контакты
     const lead = await amoGet(
       parsed.subdomain,
       `/api/v4/leads/${parsed.lead_id}?with=contacts`
     );
 
-    console.log("LEAD PRICE:", lead.price ?? null);
-    console.log("CONTACT ID:", lead._embedded?.contacts?.[0]?.id ?? null);
-
-    // 🔎 1) То, что мы уже пробовали
-    console.log("LEAD SOURCE:", lead._embedded?.source);
-
-    // 🔎 2) Часто есть source_id (а детали источника отдельно)
-    console.log("LEAD source_id:", lead.source_id);
-
-    // 🔎 3) Посмотрим какие вообще ключи есть в _embedded
-    console.log("LEAD _embedded keys:", lead._embedded ? Object.keys(lead._embedded) : null);
-
-    // 🔎 4) Посмотрим какие поля у сделки вообще есть (вдруг UTM лежат в кастомных полях)
-    const leadFields = lead.custom_fields_values || [];
-    const leadFieldList = leadFields.map((f) => ({
-      field_id: f.field_id,
-      field_name: f.field_name,
-      field_code: f.field_code,
-      value: f.values?.[0]?.value ?? null,
-    }));
-
-    console.log("LEAD FIELDS (first 30):", leadFieldList.slice(0, 30));
-
-    // Контакт и хэши оставим как раньше (на будущее)
+    const price = lead.price ?? null;
     const contactId = lead._embedded?.contacts?.[0]?.id ?? null;
-    if (!contactId) return { statusCode: 200, body: "OK_NO_CONTACT" };
 
-    const contact = await amoGet(parsed.subdomain, `/api/v4/contacts/${contactId}`);
+    console.log("LEAD PRICE:", price);
+    console.log("CONTACT ID:", contactId);
+
+    // 2) Достаём UTM (как у тебя в amoCRM: field_code = UTM_*)
+    const utm_source = getLeadFieldValue(lead, "UTM_SOURCE");
+    const utm_medium = getLeadFieldValue(lead, "UTM_MEDIUM");
+    const utm_campaign = getLeadFieldValue(lead, "UTM_CAMPAIGN");
+    const utm_content = getLeadFieldValue(lead, "UTM_CONTENT"); // ad.id
+    const utm_term = getLeadFieldValue(lead, "UTM_TERM"); // adset.id
+    const utm_id = getLeadFieldValue(lead, "UTM_ID");
+    const fbclid = getLeadFieldValue(lead, "FBCLID");
+    const referer = getLeadFieldValue(lead, "REFERER");
+    const utm_referrer = getLeadFieldValue(lead, "UTM_REFERRER");
+
+    console.log("UTM EXTRACTED:", {
+      utm_source,
+      utm_medium,
+      utm_campaign,
+      utm_content,
+      utm_term,
+      utm_id,
+      fbclid,
+      referer,
+      utm_referrer,
+    });
+
+    if (!contactId) {
+      console.log("NO CONTACT LINKED");
+      return { statusCode: 200, body: "OK_NO_CONTACT" };
+    }
+
+    // 3) Получаем контакт и хэшим email/phone
+    const contact = await amoGet(
+      parsed.subdomain,
+      `/api/v4/contacts/${contactId}`
+    );
+
     const cfields = contact.custom_fields_values || [];
-    const email = getFieldValue(cfields, "EMAIL");
-    const phone = getFieldValue(cfields, "PHONE");
+    const email = getFieldValueByCode(cfields, "EMAIL");
+    const phone = getFieldValueByCode(cfields, "PHONE");
 
     console.log("EMAIL:", email);
     console.log("PHONE:", phone);
